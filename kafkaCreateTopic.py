@@ -19,6 +19,8 @@ def create_topics_from_list(topic_list):
         # Create Kafka admin client
         admin_client = kafka_utils.createKafkaAdmin(bootstrap_servers, client_id)
 
+        logger.info("Kafka admin created successfully")
+
         # Convert the input list to NewTopic objects
         topics_to_create = [
             NewTopic(name=topic[0], num_partitions=topic[1], replication_factor=topic[2])for topic in topic_list

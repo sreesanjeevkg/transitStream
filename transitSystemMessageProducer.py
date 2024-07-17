@@ -1,9 +1,19 @@
+from venv import logger
 from utils import kafkaUtils
-from datetime import datetime
-import time
 import json
 import requests
 import logging
+from kafka.errors import TopicAlreadyExistsError, UnknownTopicOrPartitionError
+
+def check_topic_exists(bootstrap_servers,client_id, topic_name):
+    kafka_utils = kafkaUtils()
+    admin_client = kafka_utils.createKafkaAdmin(bootstrap_servers, client_id)
+
+    try:
+        topics = admin_client.list_topics()
+        return topic_name in topics
+    finally:
+        admin_client.close()
 
 def apiRequest(url):
     try:
@@ -19,11 +29,28 @@ def apiRequest(url):
         print(f"Error decoding JSON response: {e}")
         raise
 
-def sendMessages(producer, message, msg_key):
+def preprocessJSON(message):
+    val = []
     for key, value in message.items():
         if key == "entity":
-            for updates in value:
-                producer.send(topic = "transitStream", key = msg_key, value = updates)
+            return value # since entity is a list - idk why it is a list
+
+def sendMessages(producer, message, msg_key, topic_name = "hello"):
+    try:
+        # Check if the topic exists
+        if not check_topic_exists(producer.config['bootstrap_servers'], producer.config['client_id'], topic_name):
+            raise UnknownTopicOrPartitionError(f"Topic '{topic_name}' does not exist")
+        
+        # If the topic exists, send messages
+        for value in message:
+            producer.send(topic=topic_name, key=msg_key, value=value)
+    
+    except UnknownTopicOrPartitionError as e:
+        # Re-raise the error if the topic doesn't exist
+        raise e
+    except Exception as e:
+        # Handle any other unexpected errors
+        raise Exception(f"An error occurred while sending messages: {str(e)}")
                 
 
 
@@ -43,8 +70,13 @@ def main():
     trip_updates = apiRequest(trip_updates_http)
     vehicle_position = apiRequest(vehicle_position_http)
 
-    sendMessages(producer, message = trip_updates, msg_key = "trip_updates")
-    sendMessages(producer, message = vehicle_position, msg_key = "vehicle_position")
+    trip_updates_message = preprocessJSON(trip_updates)
+    vehicle_position_message = preprocessJSON(vehicle_position)
+
+    logger.info(f"Number of messages in trip updates is {len(trip_updates_message)}")
+
+    sendMessages(producer, message = trip_updates_message, msg_key = "trip_updates")
+    sendMessages(producer, message = vehicle_position_message, msg_key = "vehicle_position")
 
     producer.flush()
 
